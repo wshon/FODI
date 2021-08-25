@@ -5,8 +5,20 @@
  */
 const IS_CN = 0;
 const EXPOSE_PATH = "";
-const ONEDRIVE_REFRESHTOKEN = "";
+const ONEDRIVE_CLIENT_ID = ""
+const ONEDRIVE_CLIENT_SECRET = ""
+const ONEDRIVE_REFRESHTOKEN_URL = "";
 const PASSWD_FILENAME = ".password";
+
+const oauthHost = [
+  'https://login.microsoftonline.com',
+  'https://login.partner.microsoftonline.cn'
+][IS_CN]
+
+const apiHost = [
+  'https://graph.microsoft.com',
+  'https://microsoftgraph.chinacloudapi.cn'
+][IS_CN]
 
 async function handleRequest(request) {
   let querySplited, requestPath;
@@ -24,7 +36,7 @@ async function handleRequest(request) {
     const url = await fetchFiles(requestPath, fileName);
     return Response.redirect(url, 302);
   } else {
-    const { headers } = request;
+    const {headers} = request;
     const contentType = headers.get("content-type");
     let body = {};
     if (contentType && contentType.includes("form")) {
@@ -54,17 +66,14 @@ addEventListener("fetch", (event) => {
 });
 
 const OAUTH = {
-  redirectUri: redirectUri,
-  refreshToken: ONEDRIVE_REFRESHTOKEN,
-  clientId: clientId,
-  clientSecret: clientSecret,
-  oauthUrl: loginHost + "/common/oauth2/v2.0/",
+  clientId: ONEDRIVE_CLIENT_ID,
+  clientSecret: ONEDRIVE_CLIENT_SECRET,
+  oauthUrl: oauthHost + "/common/oauth2/v2.0/",
   apiUrl: apiHost + "/v1.0/me/drive/root",
-  scope: apiHost + "/Files.ReadWrite.All offline_access",
 };
 
 async function gatherResponse(response) {
-  const { headers } = response;
+  const {headers} = response;
   const contentType = headers.get("content-type");
   if (contentType.includes("application/json")) {
     return await response.json();
@@ -88,14 +97,12 @@ async function cacheFetch(url, options) {
 
 async function getContent(url) {
   const response = await cacheFetch(url);
-  const result = await gatherResponse(response);
-  return result;
+  return await gatherResponse(response);
 }
 
 async function getContentWithHeaders(url, headers) {
-  const response = await cacheFetch(url, { headers: headers });
-  const result = await gatherResponse(response);
-  return result;
+  const response = await cacheFetch(url, {headers: headers});
+  return await gatherResponse(response);
 }
 
 async function fetchFormData(url, data) {
@@ -110,18 +117,21 @@ async function fetchFormData(url, data) {
     body: formdata,
   };
   const response = await cacheFetch(url, requestOptions);
-  const result = await gatherResponse(response);
-  return result;
+  return await gatherResponse(response);
 }
 
-async function fetchAccessToken() {
-  url = OAUTH["oauthUrl"] + "token";
-  data = {
+async function fetchRefreshToken() {
+  return await getContent(ONEDRIVE_REFRESHTOKEN_URL);
+}
+
+async function fetchAccessToken(refreshToken) {
+  let url = OAUTH["oauthUrl"] + "token";
+  let data = {
     client_id: OAUTH["clientId"],
     client_secret: OAUTH["clientSecret"],
     grant_type: "refresh_token",
     requested_token_use: "on_behalf_of",
-    refresh_token: OAUTH["refreshToken"],
+    refresh_token: refreshToken,
   };
   const result = await fetchFormData(url, data);
   return result.access_token;
@@ -131,7 +141,8 @@ async function fetchFiles(path, fileName, passwd) {
   if (path === "/") path = "";
   if (path || EXPOSE_PATH) path = ":" + EXPOSE_PATH + path;
 
-  const accessToken = await fetchAccessToken();
+  const refreshToken = await fetchRefreshToken();
+  const accessToken = await fetchAccessToken(refreshToken);
   const uri =
     OAUTH.apiUrl +
     encodeURI(path) +
@@ -144,7 +155,6 @@ async function fetchFiles(path, fileName, passwd) {
     body.children.forEach((file) => {
       if (file.name === decodeURIComponent(fileName)) {
         thisFile = file["@microsoft.graph.downloadUrl"];
-        return;
       }
     });
     return thisFile;
@@ -175,9 +185,9 @@ async function fetchFiles(path, fileName, passwd) {
     parent = parent.split(":").pop().replace(EXPOSE_PATH, "") || "/";
     parent = decodeURIComponent(parent);
     if (encrypted) {
-      return JSON.stringify({ parent: parent, files: [], encrypted: true });
+      return JSON.stringify({parent: parent, files: [], encrypted: true});
     } else {
-      return JSON.stringify({ parent: parent, files: files });
+      return JSON.stringify({parent: parent, files: files});
     }
   }
 }
